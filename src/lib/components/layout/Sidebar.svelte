@@ -3,7 +3,7 @@
 </script>
 
 <nav class="sidebar">
-  <h1>Logarys</h1>
+  <h1><img id="logo" src="/logo/logo.svg" alt="logarys"> <div>Logarys</div></h1>
 
   <a href="/">Dashboard</a>
   <a href="/logs">Logs</a>
@@ -24,8 +24,21 @@
   }
 
   h1 {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
     margin: 0 0 2rem;
     font-size: 1.4rem;
+
+    div {
+      margin: 0 25px;
+    }
+  }
+
+
+  #logo {
+    width: 2em;
+    height: 2em;
   }
 
   a {

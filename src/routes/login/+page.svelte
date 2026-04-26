@@ -27,7 +27,7 @@
 
 <main class="login-page">
   <form class="card login-card" onsubmit={(event) => { event.preventDefault(); void submit(); }}>
-    <h1>Logarys</h1>
+    <h1><img id="logo" src="/logo/logo.svg" alt="logarys"> <div>Logarys</div></h1>
     <p class="muted">Sign in to the console manager.</p>
 
     {#if error}
@@ -67,6 +67,24 @@
   h1,
   p {
     margin: 0;
+  }
+
+  h1 {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    margin: 0 0 2rem;
+    font-size: 2rem;
+
+    div {
+      margin: 0 25px;
+    }
+  }
+
+
+  #logo {
+    width: 3em;
+    height: 3em;
   }
 
   label {
