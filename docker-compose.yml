@@ -1,0 +1,151 @@
+services:
+  nats:
+    image: nats:2.11-alpine
+    container_name: logarys-nats
+    command:
+      - "-js"
+      - "-m"
+      - "8222"
+      - "-sd"
+      - "/data"
+    ports:
+      - "4222:4222"
+      - "8222:8222"
+    volumes:
+      - nats-data:/data
+    networks:
+      - logarys
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:8222/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  mongodb:
+    image: mongo:8
+    container_name: logarys-mongodb
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+    networks:
+      - logarys
+    healthcheck:
+      test: ["CMD-SHELL", "mongosh --quiet --eval 'db.runCommand({ ping: 1 }).ok' | grep 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  ingestor:
+    image: logarys/ingestor:${LOGARYS_VERSION:-latest}
+    container_name: logarys-ingestor
+    restart: unless-stopped
+    depends_on:
+      nats:
+        condition: service_healthy
+    ports:
+      - "3000:3000"
+    environment:
+      APP_HOST: "0.0.0.0"
+      APP_PORT: "3000"
+      NATS_URL: "nats://nats:4222"
+      CONF_FILE: "/conf/pipelines.json"
+      CONF_PIPELINES_DIR: "/conf/pipelines.d"
+    volumes:
+      - ./docker/pipelines:/conf/pipelines.d:ro
+    networks:
+      - logarys
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('net').connect(3000, '127.0.0.1').on('connect', function(){process.exit(0)}).on('error', function(){process.exit(1)})"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  storage-manager:
+    image: logarys/storage-manager:${LOGARYS_VERSION:-latest}
+    container_name: logarys-storage-manager
+    restart: unless-stopped
+    depends_on:
+      nats:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
+    ports:
+      - "3001:3000"
+    environment:
+      APP_HOST: "0.0.0.0"
+      APP_PORT: "3000"
+      NATS_URL: "nats://nats:4222"
+      MONGO_URL: "mongodb://mongodb:27017"
+      MONGO_URI: "mongodb://mongodb:27017"
+      MONGODB_URL: "mongodb://mongodb:27017"
+      MONGODB_URI: "mongodb://mongodb:27017"
+      MONGO_DB: "logarys"
+      MONGODB_DB: "logarys"
+      MONGODB_DATABASE: "logarys"
+      DATABASE_NAME: "logarys"
+      DB_NAME: "logarys"
+    networks:
+      - logarys
+
+  console-manager:
+    image: logarys/console-manager:${LOGARYS_VERSION:-latest}
+    container_name: logarys-console-manager
+    restart: unless-stopped
+    depends_on:
+      nats:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
+      storage-manager:
+        condition: service_started
+    ports:
+      - "3002:3000"
+    environment:
+      APP_HOST: "0.0.0.0"
+      APP_PORT: "3000"
+      NATS_URL: "nats://nats:4222"
+      NATS_URI: "nats://nats:4222"
+      NATS_SERVER: "nats://nats:4222"
+      NATS_SERVERS: "nats://nats:4222"
+      MONGO_URL: "mongodb://mongodb:27017"
+      MONGO_URI: "mongodb://mongodb:27017"
+      MONGODB_URL: "mongodb://mongodb:27017"
+      MONGODB_URI: "mongodb://mongodb:27017"
+      MONGO_DB: "logarys"
+      MONGODB_DB: "logarys"
+      MONGODB_DATABASE: "logarys"
+      DATABASE_NAME: "logarys"
+      DB_NAME: "logarys"
+      STORAGE_MANAGER_URL: "http://storage-manager:3000"
+    networks:
+      - logarys
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('net').connect(3000, '127.0.0.1').on('connect', function(){process.exit(0)}).on('error', function(){process.exit(1)})"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  ui:
+    container_name: logarys-ui
+    build:
+      context: .
+      args:
+        PUBLIC_LOGARYS_API_URL: "${PUBLIC_LOGARYS_API_URL:-http://localhost:3002}"
+    restart: unless-stopped
+    depends_on:
+      console-manager:
+        condition: service_healthy
+    ports:
+      - "5173:80"
+    networks:
+      - logarys
+
+volumes:
+  nats-data:
+  mongo-data:
+
+networks:
+  logarys:
+    name: logarys

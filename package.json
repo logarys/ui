@@ -1,0 +1,34 @@
+{
+  "name": "logarys-ui",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Logarys web console UI.",
+  "scripts": {
+    "dev": "vite dev --host 0.0.0.0",
+    "build": "vite build",
+    "preview": "vite preview --host 0.0.0.0",
+    "check": "svelte-check --tsconfig ./tsconfig.json",
+    "lint": "eslint .",
+    "test": "npm run check && npm run build"
+  },
+  "dependencies": {
+    "@sveltejs/adapter-static": "^3.0.10",
+    "@sveltejs/kit": "^2.50.2",
+    "reflect-metadata": "^0.2.2",
+    "small-type-dependency-injection": "0.6.*",
+    "svelte": "^5.51.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.2",
+    "@sveltejs/vite-plugin-svelte": "^6.2.4",
+    "@types/node": "^24.10.1",
+    "eslint": "^9.39.2",
+    "eslint-plugin-svelte": "^3.12.4",
+    "globals": "^16.5.0",
+    "svelte-check": "^4.4.2",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.48.0",
+    "vite": "^7.3.1"
+  }
+}

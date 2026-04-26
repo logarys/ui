@@ -1,0 +1,5 @@
+{
+  "name": "logarys-test-pipeline",
+  "enabled": true,
+  "inputType": "http"
+}
