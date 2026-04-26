@@ -133,6 +133,7 @@ services:
       context: .
       args:
         PUBLIC_LOGARYS_API_URL: "${PUBLIC_LOGARYS_API_URL:-http://localhost:3002}"
+    image: logarys/ui:latest
     restart: unless-stopped
     depends_on:
       console-manager:
