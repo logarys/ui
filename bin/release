@@ -1,0 +1,167 @@
+#!/bin/bash
+
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/source/colors.source"
+
+VERBOSE=false
+RELEASE_TYPE=""
+NEW=1
+FORCE=false
+
+IMAGE_NAME="logarys/ui"
+DOCKERHUB_NAMESPACE="logarys"
+DOCKERHUB_REPOSITORY="ui"
+
+help() {
+  echo "Usage: $0 --version <patch|minor|major> [--republish] [--force] [-v]"
+  echo ""
+  echo "Options:"
+  echo "  --version    Release type: patch, minor, major"
+  echo "  --republish  Release current package.json version again"
+  echo "  --force      Allow push even if Docker Hub tag already exists"
+  echo "  -v           Show command output"
+  echo "  -h, --help   Show help"
+}
+
+log() {
+  echo -e "${BLUE}==>${NC} $1"
+}
+
+success() {
+  echo -e "${GREEN}✔${NC} $1"
+}
+
+error() {
+  echo -e "${RED}✘ $1${NC}"
+}
+
+run() {
+  local cmd="$*"
+
+  log "$cmd"
+
+  if [ "$VERBOSE" = true ]; then
+    bash -c "$cmd"
+  else
+    bash -c "$cmd" >/dev/null 2>&1
+  fi
+
+  success "Done"
+}
+
+dockerhub_tag_exists() {
+  local tag="$1"
+  local url="https://hub.docker.com/v2/repositories/${DOCKERHUB_NAMESPACE}/${DOCKERHUB_REPOSITORY}/tags/${tag}/"
+
+  local status
+  status="$(curl -fsS -o /dev/null -w "%{http_code}" "$url" || true)"
+
+  [[ "$status" == "200" ]]
+}
+
+git_tag_exists() {
+  local tag="$1"
+
+  git rev-parse "$tag" >/dev/null 2>&1
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --version)
+      RELEASE_TYPE="$2"
+      shift 2
+      ;;
+    --republish)
+      NEW=0
+      shift
+      ;;
+    --force)
+      FORCE=true
+      shift
+      ;;
+    -v|--verbose)
+      VERBOSE=true
+      shift
+      ;;
+    -h|--help)
+      help
+      exit 0
+      ;;
+    *)
+      error "Unknown option: $1"
+      help
+      exit 1
+      ;;
+  esac
+done
+
+if [[ "$NEW" == "1" && "$RELEASE_TYPE" != "patch" && "$RELEASE_TYPE" != "minor" && "$RELEASE_TYPE" != "major" ]]; then
+  error "You must specify a release type: patch, minor or major"
+  help
+  exit 1
+fi
+
+if ! command -v curl >/dev/null 2>&1; then
+  error "curl is required to check Docker Hub tags"
+  exit 1
+fi
+
+if [ "$NEW" == "1" ]; then
+  log "Starting $RELEASE_TYPE release"
+  npm version "$RELEASE_TYPE" --no-git-tag-version
+else
+  log "Republishing current version"
+fi
+
+VERSION="$(node -p "require('./package.json').version")"
+
+log "Checking Docker Hub tag ${IMAGE_NAME}:${VERSION}"
+
+if dockerhub_tag_exists "$VERSION"; then
+  if [ "$FORCE" = true ]; then
+    log "Docker Hub tag ${IMAGE_NAME}:${VERSION} already exists, but --force is enabled"
+  else
+    error "Docker Hub tag ${IMAGE_NAME}:${VERSION} already exists. Use --force to overwrite it."
+    exit 1
+  fi
+fi
+
+log "Build docker image"
+run "VERSION=$VERSION docker compose build app"
+
+log "Tag docker image"
+run "docker tag ${IMAGE_NAME}:latest ${IMAGE_NAME}:${VERSION}"
+
+log "Push docker image to Docker Hub"
+run "docker push ${IMAGE_NAME}:${VERSION}"
+
+log "Push latest tag to Docker Hub"
+run "docker push ${IMAGE_NAME}:latest"
+
+success "Docker image pushed: ${IMAGE_NAME}:${VERSION}"
+
+if git_tag_exists "$VERSION"; then
+  if [ "$FORCE" = true ]; then
+    log "Git tag $VERSION already exists, skipping tag creation because --force is enabled"
+  else
+    error "Git tag $VERSION already exists. Use --force to continue without creating it."
+    exit 1
+  fi
+else
+  git tag "$VERSION"
+fi
+
+git add --all
+
+if git diff --cached --quiet; then
+  log "No changes to commit"
+else
+  git commit -m "release: $VERSION"
+fi
+
+git push
+git push --tags
+
+success "Release $VERSION completed"

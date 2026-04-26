@@ -127,7 +127,7 @@ services:
       timeout: 3s
       retries: 30
 
-  ui:
+  app:
     container_name: logarys-ui
     build:
       context: .
