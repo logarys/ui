@@ -1,3 +1,6 @@
+import { browser } from '$app/environment';
+import { getToken, logout } from '$services/auth/auth.store';
+
 export const HttpStatus = {
   OK: 200,
   CREATED: 201,
@@ -72,9 +75,11 @@ export class HttpClient {
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    const token = getToken();
 
     const requestHeaders: HeadersInit = {
       Accept: 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...(body !== null ? { 'Content-Type': 'application/json' } : {}),
       ...headers
     };
@@ -89,6 +94,13 @@ export class HttpClient {
 
       const text = await response.text();
       const data = this.parseJson<T>(text);
+
+      if (response.status === HttpStatus.UNAUTHORIZED && browser) {
+        logout();
+        if (!window.location.pathname.startsWith('/login')) {
+          window.location.href = '/login';
+        }
+      }
 
       return new ApiResponse<T>(response.status, text, data);
     } catch (error) {

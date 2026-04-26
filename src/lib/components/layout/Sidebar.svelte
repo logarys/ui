@@ -1,10 +1,18 @@
+<script lang="ts">
+  import { currentUser } from '$services/auth/auth.store';
+</script>
+
 <nav class="sidebar">
   <h1>Logarys</h1>
 
   <a href="/">Dashboard</a>
   <a href="/logs">Logs</a>
-  <a href="/pipelines">Pipelines</a>
-  <a href="/config">Config</a>
+  {#if $currentUser?.isAdmin}
+    <a href="/pipelines">Pipelines</a>
+    <a href="/admin/users">Users</a>
+    <a href="/config">Config</a>
+  {/if}
+  <a href="/profile">Profile</a>
 </nav>
 
 <style>
