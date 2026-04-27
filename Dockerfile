@@ -11,11 +11,25 @@ RUN if [ -f package-lock.json ]; then npm ci; else npm install; fi
 COPY . .
 RUN npm run build
 
-FROM caddy:latest
+FROM node:24-bookworm-slim AS runner
 
-COPY --from=builder /app/build /srv
-COPY Caddyfile /etc/caddy/Caddyfile
+WORKDIR /app
 
-EXPOSE 80
+ENV NODE_ENV=production
+ENV HOST=0.0.0.0
+ENV PORT=4173
 
-CMD ["caddy", "run", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile"]
+COPY package*.json ./
+RUN if [ -f package-lock.json ]; then npm ci --include=dev; else npm install; fi \
+  && npm cache clean --force
+
+COPY --from=builder /app/build ./build
+COPY --from=builder /app/.svelte-kit ./.svelte-kit
+COPY --from=builder /app/static ./static
+COPY --from=builder /app/svelte.config.js ./svelte.config.js
+COPY --from=builder /app/vite.config.ts ./vite.config.ts
+COPY --from=builder /app/tsconfig.json ./tsconfig.json
+
+EXPOSE 4173
+
+CMD ["npm", "run", "start"]

@@ -139,7 +139,7 @@ services:
       console-manager:
         condition: service_healthy
     ports:
-      - "5173:80"
+      - "5173:4173"
     networks:
       - logarys
 

@@ -16,7 +16,7 @@ The UI connects to `logarys-console-manager` and provides:
 - SvelteKit 5
 - TypeScript
 - Static adapter
-- Caddy runtime image
+- Vite preview runtime served by Node.js
 - `small-type-dependency-injection`
 
 ## Install
@@ -45,7 +45,7 @@ npm run test
 docker compose up --build
 ```
 
-The UI is exposed on `http://localhost:5173`.
+The UI is exposed on `http://localhost:5173` and served by `vite preview` inside the container.
 
 ## Environment
 
