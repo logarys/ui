@@ -2,7 +2,6 @@ FROM node:24-bookworm-slim AS builder
 
 WORKDIR /app
 
-ARG PUBLIC_LOGARYS_API_URL=http://localhost:3000
 ENV PUBLIC_LOGARYS_API_URL=${PUBLIC_LOGARYS_API_URL}
 
 COPY package*.json ./
@@ -29,7 +28,9 @@ COPY --from=builder /app/static ./static
 COPY --from=builder /app/svelte.config.js ./svelte.config.js
 COPY --from=builder /app/vite.config.ts ./vite.config.ts
 COPY --from=builder /app/tsconfig.json ./tsconfig.json
+COPY ./docker/entrypoint /
+RUN chmod 700 /entrypoint
 
 EXPOSE 4173
 
-CMD ["npm", "run", "start"]
+ENTRYPOINT /entrypoint && npm run start

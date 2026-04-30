@@ -1,0 +1,24 @@
+#!/bin/sh
+set -e
+
+RUNTIME_ENV_FILE="${RUNTIME_ENV_FILE:-/app/build/client/runtime-env.js}"
+
+mkdir -p "$(dirname "$RUNTIME_ENV_FILE")"
+
+{
+  echo "window.__RUNTIME_ENV__ = {"
+
+  env | sort | while IFS='=' read -r name value; do
+    case "$name" in
+      PUBLIC_*)
+        escaped_value=$(printf '%s' "$value" \
+          | sed 's/\\/\\\\/g' \
+          | sed 's/"/\\"/g')
+
+        echo "  \"$name\": \"$escaped_value\","
+        ;;
+    esac
+  done
+
+  echo "};"
+} > "$RUNTIME_ENV_FILE"
