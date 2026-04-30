@@ -28,9 +28,7 @@ COPY --from=builder /app/static ./static
 COPY --from=builder /app/svelte.config.js ./svelte.config.js
 COPY --from=builder /app/vite.config.ts ./vite.config.ts
 COPY --from=builder /app/tsconfig.json ./tsconfig.json
-COPY ./docker/entrypoint /
-RUN chmod 700 /entrypoint
 
 EXPOSE 4173
 
-ENTRYPOINT /entrypoint && npm run start
+ENTRYPOINT npm run start

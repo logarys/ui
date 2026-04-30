@@ -1,7 +1,7 @@
 #!/bin/sh
 set -e
 
-RUNTIME_ENV_FILE="${RUNTIME_ENV_FILE:-/app/build/client/runtime-env.js}"
+RUNTIME_ENV_FILE="${RUNTIME_ENV_FILE:-/app/static/runtime-env.js}"
 
 mkdir -p "$(dirname "$RUNTIME_ENV_FILE")"
 
@@ -22,3 +22,5 @@ mkdir -p "$(dirname "$RUNTIME_ENV_FILE")"
 
   echo "};"
 } > "$RUNTIME_ENV_FILE"
+cp $RUNTIME_ENV_FILE /app/.svelte-kit/output/client/runtime-env.js
+cp $RUNTIME_ENV_FILE /app/build/runtime-env.js
