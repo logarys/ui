@@ -17,27 +17,42 @@
     }).format(new Date(date));
   }
 
-  function configValue(pipeline: PipelineConfig, key: string): string {
-    const direct = pipeline[key];
+  function displayName(pipeline: PipelineConfig): string {
+    return String(pipeline.name ?? pipeline.id ?? pipeline.source ?? '-');
+  }
 
-    if (typeof direct === 'string' || typeof direct === 'number' || typeof direct === 'boolean') {
-      return String(direct);
-    }
+  function displayInput(pipeline: PipelineConfig): string {
+    const input = pipeline.inputType ?? pipeline.input ?? 'http';
+    return String(input).toUpperCase();
+  }
 
-    const config = pipeline.config;
+  function displaySource(pipeline: PipelineConfig): string {
+    return String(pipeline.source ?? pipeline.defaults?.source ?? '-');
+  }
 
-    if (config && typeof config === 'object' && !Array.isArray(config)) {
-      const value = config[key];
-
-      if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
-        return String(value);
-      }
-    }
-
-    return '-';
+  function displayFormat(pipeline: PipelineConfig): string {
+    return String(pipeline.format ?? pipeline.parser?.type ?? '-');
   }
 
   function configSummary(pipeline: PipelineConfig): string {
+    const parts: string[] = [];
+
+    if (pipeline.parser?.pattern) {
+      parts.push(`pattern: ${shorten(String(pipeline.parser.pattern), 42)}`);
+    }
+
+    if (pipeline.publish?.subject) {
+      parts.push(`subject: ${pipeline.publish.subject}`);
+    }
+
+    if (pipeline.security?.mode) {
+      parts.push(`security: ${pipeline.security.mode}`);
+    }
+
+    if (parts.length > 0) {
+      return parts.slice(0, 3).join(', ');
+    }
+
     const config = pipeline.config;
 
     if (!config || typeof config !== 'object' || Array.isArray(config)) {
@@ -45,11 +60,14 @@
     }
 
     const entries = Object.entries(config)
-      .filter(([key]) => key !== 'source' && key !== 'format')
       .slice(0, 3)
       .map(([key, value]) => `${key}: ${formatValue(value)}`);
 
     return entries.length > 0 ? entries.join(', ') : '-';
+  }
+
+  function shorten(value: string, length: number): string {
+    return value.length > length ? `${value.slice(0, length)}…` : value;
   }
 
   function formatValue(value: unknown): string {
@@ -57,7 +75,7 @@
       return String(value);
     }
 
-    return JSON.stringify(value);
+    return shorten(JSON.stringify(value), 60);
   }
 </script>
 
@@ -68,25 +86,25 @@
         <th>Name</th>
         <th>Input</th>
         <th>Source</th>
-        <th>Format</th>
+        <th>Parser</th>
         <th>Status</th>
-        <th>Config</th>
+        <th>Runtime config</th>
         <th>Updated</th>
         <th></th>
       </tr>
     </thead>
     <tbody>
-      {#each pipelines as pipeline (pipeline.id ?? pipeline.name)}
+      {#each pipelines as pipeline (pipeline.id ?? pipeline.source ?? pipeline.name)}
         <tr>
           <td>
-            <strong>{pipeline.name}</strong>
+            <strong>{displayName(pipeline)}</strong>
             {#if pipeline.description}
               <small>{pipeline.description}</small>
             {/if}
           </td>
-          <td>{pipeline.inputType}</td>
-          <td>{configValue(pipeline, 'source')}</td>
-          <td>{configValue(pipeline, 'format')}</td>
+          <td>{displayInput(pipeline)}</td>
+          <td>{displaySource(pipeline)}</td>
+          <td>{displayFormat(pipeline)}</td>
           <td>
             <span class:enabled={pipeline.enabled}>
               {pipeline.enabled ? 'Enabled' : 'Disabled'}
@@ -125,6 +143,11 @@
   .config {
     color: var(--color-muted);
     font-size: 0.85rem;
+  }
+
+  .config {
+    max-width: 32rem;
+    overflow-wrap: anywhere;
   }
 
   .actions {

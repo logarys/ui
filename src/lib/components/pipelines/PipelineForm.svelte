@@ -21,7 +21,8 @@
   let configJson = $state('{}');
   let saving = $state(false);
   let formError = $state<string | null>(null);
-
+  let syntaxMessage = $state<string | null>(null);
+  let syntaxOk = $state(false);
   let lastLoadedKey = $state<string | null>(null);
 
   let isEditing = $derived(Boolean(selectedPipeline));
@@ -45,11 +46,6 @@
   async function submit(): Promise<void> {
     formError = null;
 
-    if (!name.trim()) {
-      formError = 'Pipeline name is required.';
-      return;
-    }
-
     if (!source.trim()) {
       formError = 'Source is required.';
       return;
@@ -69,23 +65,29 @@
       return;
     }
 
+    const validationError = validateRuntimeConfig(parsedConfig, format.trim());
+
+    if (validationError) {
+      formError = validationError;
+      syntaxMessage = validationError;
+      syntaxOk = false;
+      return;
+    }
+
+    parsedConfig = normalizeConfigBeforeSave(parsedConfig, format.trim(), source.trim());
     saving = true;
 
     try {
       await onSave(
         {
           id: technicalId.trim() || undefined,
-          name: name.trim(),
+          name: name.trim() || source.trim(),
           inputType,
           enabled,
           source: source.trim(),
           format: format.trim(),
           description: description.trim() || undefined,
-          config: {
-            ...parsedConfig,
-            source: source.trim(),
-            format: format.trim()
-          }
+          config: parsedConfig
         },
         selectedPipeline
       );
@@ -101,17 +103,20 @@
   }
 
   function loadPipeline(pipeline: PipelineConfig): void {
-    const config = isRecord(pipeline.config) ? pipeline.config : {};
+    const config = buildRuntimeConfig(pipeline);
+    const parser = isRecord(config.parser) ? config.parser : {};
 
-    technicalId = String(pipeline.id ?? '');
-    name = pipeline.name ?? '';
+    technicalId = String(pipeline.id ?? pipeline.source ?? '');
+    name = String(pipeline.name ?? pipeline.id ?? pipeline.source ?? '');
     inputType = pipeline.inputType ?? 'http';
     enabled = Boolean(pipeline.enabled);
-    source = String(pipeline.source ?? config.source ?? '');
-    format = String(pipeline.format ?? config.format ?? 'json');
+    source = String(pipeline.source ?? pipeline.defaults?.source ?? '');
+    format = String(pipeline.format ?? parser.type ?? 'json');
     description = String(pipeline.description ?? '');
     configJson = JSON.stringify(config, null, 2);
     formError = null;
+    syntaxMessage = null;
+    syntaxOk = false;
   }
 
   function resetForm(): void {
@@ -124,6 +129,8 @@
     description = '';
     configJson = '{}';
     formError = null;
+    syntaxMessage = null;
+    syntaxOk = false;
   }
 
   function cancelEdit(): void {
@@ -134,6 +141,104 @@
   function applyTemplate(): void {
     const template = getTemplate(inputType, source || 'application-logs', format || 'json');
     configJson = JSON.stringify(template, null, 2);
+    syntaxMessage = null;
+    syntaxOk = false;
+  }
+
+
+  function checkSyntax(): boolean {
+    formError = null;
+
+    let parsedConfig: Record<string, unknown>;
+
+    try {
+      parsedConfig = parseConfigJson(configJson);
+    } catch (error) {
+      syntaxOk = false;
+      syntaxMessage = error instanceof Error ? error.message : 'Invalid JSON configuration.';
+      return false;
+    }
+
+    const validationError = validateRuntimeConfig(parsedConfig, format.trim());
+
+    if (validationError) {
+      syntaxOk = false;
+      syntaxMessage = validationError;
+      return false;
+    }
+
+    syntaxOk = true;
+    syntaxMessage = 'Runtime pipeline JSON syntax is valid.';
+    return true;
+  }
+
+  function clearSyntaxMessage(): void {
+    syntaxMessage = null;
+    syntaxOk = false;
+  }
+
+  function validateRuntimeConfig(config: Record<string, unknown>, selectedParserType: string): string | null {
+    const allowedTopLevelKeys = new Set(['parser', 'defaults', 'publish', 'security', 'input']);
+    const invalidTopLevelKey = Object.keys(config).find((key) => !allowedTopLevelKeys.has(key));
+
+    if (invalidTopLevelKey) {
+      return `Unsupported runtime config key: ${invalidTopLevelKey}. Use parser, defaults, publish, security or input.`;
+    }
+
+    if (config.parser !== undefined && !isRecord(config.parser)) {
+      return 'parser must be a JSON object.';
+    }
+
+    if (config.defaults !== undefined && !isRecord(config.defaults)) {
+      return 'defaults must be a JSON object.';
+    }
+
+    if (config.publish !== undefined && !isRecord(config.publish)) {
+      return 'publish must be a JSON object.';
+    }
+
+    if (config.security !== undefined && !isRecord(config.security)) {
+      return 'security must be a JSON object.';
+    }
+
+    const parser = isRecord(config.parser) ? config.parser : {};
+    const parserType = String(parser.type ?? selectedParserType ?? '').trim();
+
+    if (!parserType) {
+      return 'parser.type is required.';
+    }
+
+    if (parserType === 'regex') {
+      const pattern = parser.pattern ?? parser.regex;
+
+      if (typeof pattern !== 'string' || pattern.trim() === '') {
+        return 'parser.pattern is required for regex pipelines.';
+      }
+
+      try {
+        new RegExp(pattern);
+      } catch (error) {
+        return `Invalid regex pattern: ${error instanceof Error ? error.message : String(error)}`;
+      }
+    }
+
+    if (isRecord(config.publish)) {
+      const subject = config.publish.subject;
+
+      if (subject !== undefined && (typeof subject !== 'string' || subject.trim() === '')) {
+        return 'publish.subject must be a non-empty string.';
+      }
+    }
+
+    if (isRecord(config.security)) {
+      const mode = config.security.mode;
+
+      if (mode !== undefined && typeof mode !== 'string') {
+        return 'security.mode must be a string.';
+      }
+    }
+
+    return null;
   }
 
   function parseConfigJson(value: string): Record<string, unknown> {
@@ -153,7 +258,61 @@
   }
 
   function pipelineKey(pipeline: PipelineConfig): string {
-    return String(pipeline.id ?? pipeline.name);
+    return String(pipeline.id ?? pipeline.source ?? pipeline.name);
+  }
+
+  function buildRuntimeConfig(pipeline: PipelineConfig): Record<string, unknown> {
+    if (isRecord(pipeline.config) && Object.keys(pipeline.config).length > 0) {
+      return pipeline.config;
+    }
+
+    const config: Record<string, unknown> = {};
+
+    if (isRecord(pipeline.parser)) {
+      config.parser = pipeline.parser;
+    }
+
+    if (isRecord(pipeline.defaults)) {
+      config.defaults = pipeline.defaults;
+    }
+
+    if (isRecord(pipeline.publish)) {
+      config.publish = pipeline.publish;
+    }
+
+    if (isRecord(pipeline.security)) {
+      config.security = pipeline.security;
+    }
+
+    return config;
+  }
+
+  function normalizeConfigBeforeSave(
+    config: Record<string, unknown>,
+    parserType: string,
+    pipelineSource: string
+  ): Record<string, unknown> {
+    const parser = isRecord(config.parser) ? { ...config.parser } : {};
+    parser.type = String(parser.type ?? parserType);
+
+    if (parser.regex && !parser.pattern) {
+      parser.pattern = String(parser.regex);
+      delete parser.regex;
+    }
+
+    return {
+      ...config,
+      parser,
+      defaults: isRecord(config.defaults)
+        ? config.defaults
+        : { source: pipelineSource },
+      publish: isRecord(config.publish)
+        ? config.publish
+        : { subject: `logs.${pipelineSource}.normalized` },
+      security: isRecord(config.security)
+        ? config.security
+        : { mode: 'none' }
+    };
   }
 
   function isRecord(value: unknown): value is Record<string, unknown> {
@@ -166,38 +325,46 @@
     defaultFormat: string
   ): Record<string, unknown> {
     const base = {
-      source: defaultSource,
-      format: defaultFormat
+      parser: {
+        type: defaultFormat
+      },
+      defaults: {
+        source: defaultSource
+      },
+      publish: {
+        subject: `logs.${defaultSource}.normalized`
+      },
+      security: {
+        mode: 'none'
+      }
     };
 
     switch (type) {
-      case 'http':
-        return {
-          ...base,
-          method: 'POST',
-          path: '/logs',
-          headers: {},
-          bodyField: 'message'
-        };
       case 'syslog':
         return {
           ...base,
-          protocol: 'udp',
-          port: 514,
-          facility: 'local0'
+          input: {
+            protocol: 'udp',
+            port: 514,
+            facility: 'local0'
+          }
         };
       case 'file':
         return {
           ...base,
-          path: '/var/log/application.log',
-          follow: true,
-          fromBeginning: false
+          input: {
+            path: '/var/log/application.log',
+            follow: true,
+            fromBeginning: false
+          }
         };
       case 'nats':
         return {
           ...base,
-          stream: 'LOGARYS',
-          subject: 'logs.>'
+          input: {
+            stream: 'LOGARYS',
+            subject: 'logs.>'
+          }
         };
       default:
         return base;
@@ -248,9 +415,10 @@
     </label>
 
     <label>
-      Format
+      Parser type
       <select class="input" bind:value={format} disabled={saving}>
         <option value="json">JSON</option>
+        <option value="regex">Regex</option>
         <option value="text">Text</option>
         <option value="syslog">Syslog</option>
         <option value="nginx">Nginx</option>
@@ -270,13 +438,18 @@
   </label>
 
   <label>
-    Configuration JSON
-    <textarea class="input mono" bind:value={configJson} rows="12" spellcheck="false" disabled={saving}></textarea>
+    Runtime pipeline JSON
+    <textarea class="input mono" bind:value={configJson} rows="12" spellcheck="false" disabled={saving} oninput={clearSyntaxMessage}></textarea>
   </label>
+
+  {#if syntaxMessage}
+    <p class:syntax-ok={syntaxOk} class:error={!syntaxOk}>{syntaxMessage}</p>
+  {/if}
 
   <div class="actions">
     <button class="btn secondary" type="button" onclick={applyTemplate} disabled={saving}>Apply {inputType.toUpperCase()} template</button>
-    <button class="btn" type="submit" disabled={saving || !name.trim() || !source.trim() || !format.trim()}>
+    <button class="btn secondary" type="button" onclick={checkSyntax} disabled={saving}>Check syntax</button>
+    <button class="btn" type="submit" disabled={saving || !source.trim() || !format.trim()}>
       {saving ? 'Saving...' : isEditing ? 'Save changes' : 'Create pipeline'}
     </button>
   </div>
@@ -345,6 +518,10 @@
 
   .error {
     color: var(--color-danger);
+  }
+
+  .syntax-ok {
+    color: var(--color-success);
   }
 
   button:disabled,
