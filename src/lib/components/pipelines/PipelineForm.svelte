@@ -168,7 +168,7 @@
     }
 
     syntaxOk = true;
-    syntaxMessage = 'Runtime pipeline JSON syntax is valid.';
+    syntaxMessage = 'Runtime pipeline JSON is valid: required fields are present and regex syntax is valid.';
     return true;
   }
 
@@ -185,60 +185,141 @@
       return `Unsupported runtime config key: ${invalidTopLevelKey}. Use parser, defaults, publish, security or input.`;
     }
 
-    if (config.parser !== undefined && !isRecord(config.parser)) {
-      return 'parser must be a JSON object.';
+    const parserObjectError = requireObject(config, 'parser');
+    if (parserObjectError) return parserObjectError;
+
+    const defaultsObjectError = requireObject(config, 'defaults');
+    if (defaultsObjectError) return defaultsObjectError;
+
+    const publishObjectError = requireObject(config, 'publish');
+    if (publishObjectError) return publishObjectError;
+
+    const securityObjectError = requireObject(config, 'security');
+    if (securityObjectError) return securityObjectError;
+
+    if (config.input !== undefined && !isRecord(config.input)) {
+      return 'input must be a JSON object when provided.';
     }
 
-    if (config.defaults !== undefined && !isRecord(config.defaults)) {
-      return 'defaults must be a JSON object.';
+    const parser = config.parser as Record<string, unknown>;
+    const defaults = config.defaults as Record<string, unknown>;
+    const publish = config.publish as Record<string, unknown>;
+    const security = config.security as Record<string, unknown>;
+
+    const invalidParserKey = findInvalidKey(parser, ['type', 'pattern', 'regex']);
+    if (invalidParserKey) {
+      return `Unsupported parser key: ${invalidParserKey}. Use type and pattern.`;
     }
 
-    if (config.publish !== undefined && !isRecord(config.publish)) {
-      return 'publish must be a JSON object.';
+    const invalidDefaultsKey = findInvalidKey(defaults, ['source', 'host', 'env', 'service']);
+    if (invalidDefaultsKey) {
+      return `Unsupported defaults key: ${invalidDefaultsKey}. Use source, host, env or service.`;
     }
 
-    if (config.security !== undefined && !isRecord(config.security)) {
-      return 'security must be a JSON object.';
+    const invalidPublishKey = findInvalidKey(publish, ['subject']);
+    if (invalidPublishKey) {
+      return `Unsupported publish key: ${invalidPublishKey}. Use subject.`;
     }
 
-    const parser = isRecord(config.parser) ? config.parser : {};
-    const parserType = String(parser.type ?? selectedParserType ?? '').trim();
-
-    if (!parserType) {
-      return 'parser.type is required.';
+    const invalidSecurityKey = findInvalidKey(security, ['mode', 'token']);
+    if (invalidSecurityKey) {
+      return `Unsupported security key: ${invalidSecurityKey}. Use mode or token.`;
     }
 
-    if (parserType === 'regex') {
+    const parserType = requireString(parser, 'type', 'parser.type');
+    if (parserType.error) return parserType.error;
+
+    const selectedType = selectedParserType.trim();
+    if (selectedType && parserType.value !== selectedType) {
+      return `parser.type (${parserType.value}) must match selected parser type (${selectedType}).`;
+    }
+
+    const defaultsSource = requireString(defaults, 'source', 'defaults.source');
+    if (defaultsSource.error) return defaultsSource.error;
+
+    const publishSubject = requireString(publish, 'subject', 'publish.subject');
+    if (publishSubject.error) return publishSubject.error;
+
+    const securityMode = requireString(security, 'mode', 'security.mode');
+    if (securityMode.error) return securityMode.error;
+
+    if (!['none', 'header', 'query'].includes(securityMode.value)) {
+      return 'security.mode must be one of: none, header, query.';
+    }
+
+    if ((securityMode.value === 'header' || securityMode.value === 'query') && !isNonEmptyString(security.token)) {
+      return 'security.token is required when security.mode is header or query.';
+    }
+
+    if (parserType.value === 'regex') {
       const pattern = parser.pattern ?? parser.regex;
 
-      if (typeof pattern !== 'string' || pattern.trim() === '') {
+      if (!isNonEmptyString(pattern)) {
         return 'parser.pattern is required for regex pipelines.';
       }
 
-      try {
-        new RegExp(pattern);
-      } catch (error) {
-        return `Invalid regex pattern: ${error instanceof Error ? error.message : String(error)}`;
+      const regexError = validateRegexSyntax(pattern);
+      if (regexError) {
+        return regexError;
       }
     }
 
-    if (isRecord(config.publish)) {
-      const subject = config.publish.subject;
-
-      if (subject !== undefined && (typeof subject !== 'string' || subject.trim() === '')) {
-        return 'publish.subject must be a non-empty string.';
-      }
+    if (parserType.value !== 'regex' && parser.pattern !== undefined && !isNonEmptyString(parser.pattern)) {
+      return 'parser.pattern must be a non-empty string when provided.';
     }
 
-    if (isRecord(config.security)) {
-      const mode = config.security.mode;
-
-      if (mode !== undefined && typeof mode !== 'string') {
-        return 'security.mode must be a string.';
+    for (const key of ['host', 'env', 'service']) {
+      const value = defaults[key];
+      if (value !== undefined && typeof value !== 'string') {
+        return `defaults.${key} must be a string.`;
       }
     }
 
     return null;
+  }
+
+  function requireObject(config: Record<string, unknown>, key: string): string | null {
+    if (config[key] === undefined) {
+      return `${key} is required.`;
+    }
+
+    if (!isRecord(config[key])) {
+      return `${key} must be a JSON object.`;
+    }
+
+    return null;
+  }
+
+  function requireString(
+    object: Record<string, unknown>,
+    key: string,
+    label: string
+  ): { value: string; error: string | null } {
+    const value = object[key];
+
+    if (!isNonEmptyString(value)) {
+      return { value: '', error: `${label} is required and must be a non-empty string.` };
+    }
+
+    return { value: value.trim(), error: null };
+  }
+
+  function isNonEmptyString(value: unknown): value is string {
+    return typeof value === 'string' && value.trim() !== '';
+  }
+
+  function findInvalidKey(object: Record<string, unknown>, allowedKeys: string[]): string | null {
+    const allowed = new Set(allowedKeys);
+    return Object.keys(object).find((key) => !allowed.has(key)) ?? null;
+  }
+
+  function validateRegexSyntax(pattern: string): string | null {
+    try {
+      new RegExp(pattern);
+      return null;
+    } catch (error) {
+      return `Invalid regex pattern: ${error instanceof Error ? error.message : String(error)}`;
+    }
   }
 
   function parseConfigJson(value: string): Record<string, unknown> {
