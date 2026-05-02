@@ -1,4 +1,5 @@
 export type PipelineInputType = 'http' | 'syslog' | 'file' | 'nats';
+export type PipelineParserType = 'raw' | 'json' | 'regex' | 'loki';
 
 export type PipelineConfigObject = Record<string, unknown>;
 
@@ -6,6 +7,16 @@ export interface PipelineParserConfig extends PipelineConfigObject {
   type?: string;
   pattern?: string;
   regex?: string;
+}
+
+export interface PipelineMappingConfig extends PipelineConfigObject {
+  timestamp?: string;
+  level?: string;
+  message?: string;
+  source?: string;
+  host?: string;
+  service?: string;
+  env?: string;
 }
 
 export interface PipelinePublishConfig extends PipelineConfigObject {
@@ -32,10 +43,11 @@ export interface PipelineConfig {
   inputType?: PipelineInputType;
   input?: PipelineInputType;
   source?: string;
-  format?: string;
+  format?: PipelineParserType | string;
   description?: string;
   config?: PipelineConfigObject;
   parser?: PipelineParserConfig;
+  mapping?: PipelineMappingConfig;
   defaults?: PipelineDefaultsConfig;
   publish?: PipelinePublishConfig;
   security?: PipelineSecurityConfig;
@@ -50,7 +62,7 @@ export interface PipelineSavePayload {
   enabled: boolean;
   inputType: PipelineInputType;
   source: string;
-  format: string;
+  format: PipelineParserType;
   description?: string;
   config: PipelineConfigObject;
 }

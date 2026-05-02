@@ -4,6 +4,7 @@
   import type {
     PipelineConfig,
     PipelineInputType,
+    PipelineParserType,
     PipelineSavePayload
   } from '$entities/pipeline-config';
 
@@ -18,7 +19,7 @@
   let inputType = $state<PipelineInputType>('http');
   let enabled = $state(true);
   let source = $state('');
-  let format = $state('json');
+  let format = $state<PipelineParserType>('json');
   let description = $state('');
   let configJson = $state('{}');
   let saving = $state(false);
@@ -78,7 +79,7 @@
           inputType,
           enabled,
           source: source.trim(),
-          format: format.trim(),
+          format,
           description: description.trim() || undefined,
           config: parsedConfig
         },
@@ -104,7 +105,7 @@
     inputType = pipeline.inputType ?? 'http';
     enabled = Boolean(pipeline.enabled);
     source = String(pipeline.source ?? pipeline.defaults?.source ?? '');
-    format = String(pipeline.format ?? parser.type ?? 'json');
+    format = normalizeParserType(pipeline.format ?? parser.type ?? 'json');
     description = String(pipeline.description ?? '');
     configJson = JSON.stringify(config, null, 2);
     formError = null;
@@ -198,10 +199,11 @@
     }
 
     const parser = isRecord(config.parser) ? config.parser : null;
-    const parserType = typeof parser?.type === 'string' ? parser.type.trim() : '';
+    const parserType = typeof parser?.type === 'string' ? parser.type.trim().toLowerCase() : '';
+    const selectedType = selectedParserType.trim().toLowerCase();
 
-    if (parserType && parserType !== selectedParserType.trim()) {
-      return `parser.type (${parserType}) must match selected parser type (${selectedParserType.trim()}).`;
+    if (parserType && parserType !== selectedType) {
+      return `parser.type (${parserType}) must match selected parser type (${selectedType}).`;
     }
 
     return null;
@@ -219,7 +221,7 @@
 
   function formatValidationSuccess(validation: ValidationResult<unknown>): string {
     if (validation.warnings.length === 0) {
-      return 'Runtime pipeline JSON is valid: required fields are present and regex syntax is valid.';
+      return 'Runtime pipeline JSON is valid: required fields are present and parser configuration is valid.';
     }
 
     return `Runtime pipeline JSON is valid with warnings:\n${validation.warnings
@@ -246,6 +248,10 @@
       config.parser = pipeline.parser;
     }
 
+    if (isRecord(pipeline.mapping)) {
+      config.mapping = pipeline.mapping;
+    }
+
     if (isRecord(pipeline.defaults)) {
       config.defaults = pipeline.defaults;
     }
@@ -267,7 +273,7 @@
     pipelineSource: string
   ): Record<string, unknown> {
     const parser = isRecord(config.parser) ? { ...config.parser } : {};
-    parser.type = String(parser.type ?? parserType);
+    parser.type = normalizeParserType(parser.type ?? parserType);
 
     if (parser.regex && !parser.pattern) {
       parser.pattern = String(parser.regex);
@@ -293,10 +299,20 @@
     return typeof value === 'object' && value !== null && !Array.isArray(value);
   }
 
+  function normalizeParserType(value: unknown): PipelineParserType {
+    const parserType = String(value ?? 'json').trim().toLowerCase();
+
+    if (parserType === 'raw' || parserType === 'regex' || parserType === 'loki') {
+      return parserType;
+    }
+
+    return 'json';
+  }
+
   function getTemplate(
     type: PipelineInputType,
     defaultSource: string,
-    defaultFormat: string
+    defaultFormat: PipelineParserType
   ): Record<string, unknown> {
     const base = {
       parser: {
@@ -380,12 +396,10 @@
     <label>
       Parser type
       <select class="input" bind:value={format} disabled={saving}>
+        <option value="raw">Raw</option>
         <option value="json">JSON</option>
         <option value="regex">Regex</option>
-        <option value="text">Text</option>
-        <option value="syslog">Syslog</option>
-        <option value="nginx">Nginx</option>
-        <option value="apache">Apache</option>
+        <option value="loki">Loki</option>
       </select>
     </label>
 

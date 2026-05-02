@@ -17,6 +17,7 @@ type StoragePipelinePayload = {
   source: string;
   enabled: boolean;
   parser: PipelineParserConfig;
+  mapping?: PipelineConfigObject;
   defaults?: PipelineConfigObject;
   publish?: PipelineConfigObject;
   security?: PipelineConfigObject;
@@ -141,6 +142,10 @@ function buildPipelineConfigJson(pipeline: PipelineConfig): PipelineConfigObject
     config.parser = pipeline.parser;
   }
 
+  if (isRecord(pipeline.mapping)) {
+    config.mapping = pipeline.mapping;
+  }
+
   if (isRecord(pipeline.defaults)) {
     config.defaults = pipeline.defaults;
   }
@@ -159,10 +164,11 @@ function buildPipelineConfigJson(pipeline: PipelineConfig): PipelineConfigObject
 function toStoragePipelinePayload(payload: PipelineCreatePayload | PipelineUpdatePayload): StoragePipelinePayload {
   const config = isRecord(payload.config) ? payload.config : {};
   const parserConfig = isRecord(config.parser) ? config.parser : {};
+  const mapping = isRecord(config.mapping) ? config.mapping : undefined;
   const defaults = isRecord(config.defaults) ? config.defaults : undefined;
   const publish = isRecord(config.publish) ? config.publish : undefined;
   const security = isRecord(config.security) ? config.security : undefined;
-  const parserType = String(parserConfig.type ?? payload.format ?? 'json');
+  const parserType = String(parserConfig.type ?? payload.format ?? 'json').trim().toLowerCase();
   const parser: PipelineParserConfig = {
     ...parserConfig,
     type: parserType
@@ -178,6 +184,7 @@ function toStoragePipelinePayload(payload: PipelineCreatePayload | PipelineUpdat
     source: payload.source,
     enabled: payload.enabled,
     parser,
+    mapping,
     defaults,
     publish,
     security

@@ -31,14 +31,23 @@
   }
 
   function displayFormat(pipeline: PipelineConfig): string {
-    return String(pipeline.format ?? pipeline.parser?.type ?? '-');
+    const parserType = String(pipeline.format ?? pipeline.parser?.type ?? '-');
+    return parserType === '-' ? parserType : parserType.toUpperCase();
   }
 
   function configSummary(pipeline: PipelineConfig): string {
     const parts: string[] = [];
 
+    if (pipeline.parser?.type) {
+      parts.push(`parser: ${pipeline.parser.type}`);
+    }
+
     if (pipeline.parser?.pattern) {
       parts.push(`pattern: ${shorten(String(pipeline.parser.pattern), 42)}`);
+    }
+
+    if (pipeline.mapping && Object.keys(pipeline.mapping).length > 0) {
+      parts.push(`mapping: ${shorten(JSON.stringify(pipeline.mapping), 42)}`);
     }
 
     if (pipeline.publish?.subject) {

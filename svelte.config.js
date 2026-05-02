@@ -6,7 +6,12 @@ const config = {
       pages: 'build',
       assets: 'build',
       fallback: 'index.html'
-    })
+    }),
+    alias: {
+      $components: 'src/lib/components',
+      $services: 'src/lib/services',
+      $entities: 'src/lib/entities'
+    }
   }
 };
 
