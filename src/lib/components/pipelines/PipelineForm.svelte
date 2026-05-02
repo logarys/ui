@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { parsePipelineJson } from '@logarys/pipeline-validator';
+  import type { ValidationIssue, ValidationResult } from '@logarys/pipeline-validator';
   import type {
     PipelineConfig,
     PipelineInputType,
@@ -56,25 +58,16 @@
       return;
     }
 
-    let parsedConfig: Record<string, unknown>;
+    const validation = validateConfigJson(configJson, format.trim());
 
-    try {
-      parsedConfig = parseConfigJson(configJson);
-    } catch (error) {
-      formError = error instanceof Error ? error.message : 'Invalid JSON configuration.';
-      return;
-    }
-
-    const validationError = validateRuntimeConfig(parsedConfig, format.trim());
-
-    if (validationError) {
-      formError = validationError;
-      syntaxMessage = validationError;
+    if (!validation.valid) {
+      formError = validation.message;
+      syntaxMessage = validation.message;
       syntaxOk = false;
       return;
     }
 
-    parsedConfig = normalizeConfigBeforeSave(parsedConfig, format.trim(), source.trim());
+    const parsedConfig = normalizeConfigBeforeSave(validation.value, format.trim(), source.trim());
     saving = true;
 
     try {
@@ -149,26 +142,16 @@
   function checkSyntax(): boolean {
     formError = null;
 
-    let parsedConfig: Record<string, unknown>;
+    const validation = validateConfigJson(configJson, format.trim());
 
-    try {
-      parsedConfig = parseConfigJson(configJson);
-    } catch (error) {
+    if (!validation.valid) {
       syntaxOk = false;
-      syntaxMessage = error instanceof Error ? error.message : 'Invalid JSON configuration.';
-      return false;
-    }
-
-    const validationError = validateRuntimeConfig(parsedConfig, format.trim());
-
-    if (validationError) {
-      syntaxOk = false;
-      syntaxMessage = validationError;
+      syntaxMessage = validation.message;
       return false;
     }
 
     syntaxOk = true;
-    syntaxMessage = 'Runtime pipeline JSON is valid: required fields are present and regex syntax is valid.';
+    syntaxMessage = validation.message;
     return true;
   }
 
@@ -177,165 +160,75 @@
     syntaxOk = false;
   }
 
-  function validateRuntimeConfig(config: Record<string, unknown>, selectedParserType: string): string | null {
-    const allowedTopLevelKeys = new Set(['parser', 'defaults', 'publish', 'security', 'input']);
-    const invalidTopLevelKey = Object.keys(config).find((key) => !allowedTopLevelKeys.has(key));
+  type ConfigValidationState =
+    | { valid: true; value: Record<string, unknown>; message: string }
+    | { valid: false; message: string };
 
-    if (invalidTopLevelKey) {
-      return `Unsupported runtime config key: ${invalidTopLevelKey}. Use parser, defaults, publish, security or input.`;
+  function validateConfigJson(value: string, selectedParserType: string): ConfigValidationState {
+    const validation = parsePipelineJson(value.trim() || '{}', {
+      warnOnSourceMismatch: false
+    }) as ValidationResult<Record<string, unknown>>;
+
+    if (!validation.valid || !validation.value) {
+      return {
+        valid: false,
+        message: formatValidationIssues(validation)
+      };
     }
 
-    const parserObjectError = requireObject(config, 'parser');
-    if (parserObjectError) return parserObjectError;
+    const parserTypeError = validateSelectedParserType(validation.value, selectedParserType);
 
-    const defaultsObjectError = requireObject(config, 'defaults');
-    if (defaultsObjectError) return defaultsObjectError;
-
-    const publishObjectError = requireObject(config, 'publish');
-    if (publishObjectError) return publishObjectError;
-
-    const securityObjectError = requireObject(config, 'security');
-    if (securityObjectError) return securityObjectError;
-
-    if (config.input !== undefined && !isRecord(config.input)) {
-      return 'input must be a JSON object when provided.';
+    if (parserTypeError) {
+      return {
+        valid: false,
+        message: parserTypeError
+      };
     }
 
-    const parser = config.parser as Record<string, unknown>;
-    const defaults = config.defaults as Record<string, unknown>;
-    const publish = config.publish as Record<string, unknown>;
-    const security = config.security as Record<string, unknown>;
-
-    const invalidParserKey = findInvalidKey(parser, ['type', 'pattern', 'regex']);
-    if (invalidParserKey) {
-      return `Unsupported parser key: ${invalidParserKey}. Use type and pattern.`;
-    }
-
-    const invalidDefaultsKey = findInvalidKey(defaults, ['source', 'host', 'env', 'service']);
-    if (invalidDefaultsKey) {
-      return `Unsupported defaults key: ${invalidDefaultsKey}. Use source, host, env or service.`;
-    }
-
-    const invalidPublishKey = findInvalidKey(publish, ['subject']);
-    if (invalidPublishKey) {
-      return `Unsupported publish key: ${invalidPublishKey}. Use subject.`;
-    }
-
-    const invalidSecurityKey = findInvalidKey(security, ['mode', 'token']);
-    if (invalidSecurityKey) {
-      return `Unsupported security key: ${invalidSecurityKey}. Use mode or token.`;
-    }
-
-    const parserType = requireString(parser, 'type', 'parser.type');
-    if (parserType.error) return parserType.error;
-
-    const selectedType = selectedParserType.trim();
-    if (selectedType && parserType.value !== selectedType) {
-      return `parser.type (${parserType.value}) must match selected parser type (${selectedType}).`;
-    }
-
-    const defaultsSource = requireString(defaults, 'source', 'defaults.source');
-    if (defaultsSource.error) return defaultsSource.error;
-
-    const publishSubject = requireString(publish, 'subject', 'publish.subject');
-    if (publishSubject.error) return publishSubject.error;
-
-    const securityMode = requireString(security, 'mode', 'security.mode');
-    if (securityMode.error) return securityMode.error;
-
-    if (!['none', 'header', 'query'].includes(securityMode.value)) {
-      return 'security.mode must be one of: none, header, query.';
-    }
-
-    if ((securityMode.value === 'header' || securityMode.value === 'query') && !isNonEmptyString(security.token)) {
-      return 'security.token is required when security.mode is header or query.';
-    }
-
-    if (parserType.value === 'regex') {
-      const pattern = parser.pattern ?? parser.regex;
-
-      if (!isNonEmptyString(pattern)) {
-        return 'parser.pattern is required for regex pipelines.';
-      }
-
-      const regexError = validateRegexSyntax(pattern);
-      if (regexError) {
-        return regexError;
-      }
-    }
-
-    if (parserType.value !== 'regex' && parser.pattern !== undefined && !isNonEmptyString(parser.pattern)) {
-      return 'parser.pattern must be a non-empty string when provided.';
-    }
-
-    for (const key of ['host', 'env', 'service']) {
-      const value = defaults[key];
-      if (value !== undefined && typeof value !== 'string') {
-        return `defaults.${key} must be a string.`;
-      }
-    }
-
-    return null;
+    return {
+      valid: true,
+      value: validation.value,
+      message: formatValidationSuccess(validation)
+    };
   }
 
-  function requireObject(config: Record<string, unknown>, key: string): string | null {
-    if (config[key] === undefined) {
-      return `${key} is required.`;
-    }
-
-    if (!isRecord(config[key])) {
-      return `${key} must be a JSON object.`;
-    }
-
-    return null;
-  }
-
-  function requireString(
-    object: Record<string, unknown>,
-    key: string,
-    label: string
-  ): { value: string; error: string | null } {
-    const value = object[key];
-
-    if (!isNonEmptyString(value)) {
-      return { value: '', error: `${label} is required and must be a non-empty string.` };
-    }
-
-    return { value: value.trim(), error: null };
-  }
-
-  function isNonEmptyString(value: unknown): value is string {
-    return typeof value === 'string' && value.trim() !== '';
-  }
-
-  function findInvalidKey(object: Record<string, unknown>, allowedKeys: string[]): string | null {
-    const allowed = new Set(allowedKeys);
-    return Object.keys(object).find((key) => !allowed.has(key)) ?? null;
-  }
-
-  function validateRegexSyntax(pattern: string): string | null {
-    try {
-      new RegExp(pattern);
+  function validateSelectedParserType(config: Record<string, unknown>, selectedParserType: string): string | null {
+    if (!selectedParserType.trim()) {
       return null;
-    } catch (error) {
-      return `Invalid regex pattern: ${error instanceof Error ? error.message : String(error)}`;
     }
+
+    const parser = isRecord(config.parser) ? config.parser : null;
+    const parserType = typeof parser?.type === 'string' ? parser.type.trim() : '';
+
+    if (parserType && parserType !== selectedParserType.trim()) {
+      return `parser.type (${parserType}) must match selected parser type (${selectedParserType.trim()}).`;
+    }
+
+    return null;
   }
 
-  function parseConfigJson(value: string): Record<string, unknown> {
-    const trimmed = value.trim();
+  function formatValidationIssues(validation: ValidationResult<unknown>): string {
+    const issues = validation.errors.length > 0 ? validation.errors : validation.warnings;
 
-    if (!trimmed) {
-      return {};
+    if (issues.length === 0) {
+      return 'Invalid pipeline configuration.';
     }
 
-    const parsed = JSON.parse(trimmed) as unknown;
+    return issues.map(formatValidationIssue).join('\n');
+  }
 
-    if (!isRecord(parsed)) {
-      throw new Error('Configuration must be a JSON object.');
+  function formatValidationSuccess(validation: ValidationResult<unknown>): string {
+    if (validation.warnings.length === 0) {
+      return 'Runtime pipeline JSON is valid: required fields are present and regex syntax is valid.';
     }
 
-    return parsed;
+    return `Runtime pipeline JSON is valid with warnings:\n${validation.warnings
+      .map(formatValidationIssue)
+      .join('\n')}`;
+  }
+
+  function formatValidationIssue(issue: ValidationIssue): string {
+    return `${issue.path}: ${issue.message}`;
   }
 
   function pipelineKey(pipeline: PipelineConfig): string {
@@ -424,28 +317,17 @@
       case 'syslog':
         return {
           ...base,
-          input: {
-            protocol: 'udp',
-            port: 514,
-            facility: 'local0'
-          }
+          input: 'syslog'
         };
       case 'file':
         return {
           ...base,
-          input: {
-            path: '/var/log/application.log',
-            follow: true,
-            fromBeginning: false
-          }
+          input: 'file'
         };
       case 'nats':
         return {
           ...base,
-          input: {
-            stream: 'LOGARYS',
-            subject: 'logs.>'
-          }
+          input: 'nats'
         };
       default:
         return base;
