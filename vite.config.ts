@@ -5,13 +5,13 @@ export default defineConfig({
   plugins: [sveltekit()],
 
   server: {
-    host: "0.0.0.0",
+    host: true,
     port: 5173,
     strictPort: true
   },
 
   preview: {
-    host: true,
+    host: "0.0.0.0",
     port: 4173,
     strictPort: true
   },
