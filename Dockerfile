@@ -29,6 +29,6 @@ COPY --from=builder /app/svelte.config.js ./svelte.config.js
 COPY --from=builder /app/vite.config.ts ./vite.config.ts
 COPY --from=builder /app/tsconfig.json ./tsconfig.json
 
-EXPOSE 4173
+EXPOSE 5173
 
 ENTRYPOINT npm run start
