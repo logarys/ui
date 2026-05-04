@@ -16,7 +16,7 @@ WORKDIR /app
 
 ENV NODE_ENV=production
 ENV HOST=0.0.0.0
-ENV PORT=5173
+ENV PORT=4173
 
 COPY package*.json ./
 RUN if [ -f package-lock.json ]; then npm ci --include=dev; else npm install; fi \
